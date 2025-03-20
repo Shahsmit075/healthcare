@@ -15,7 +15,7 @@ function Navigation() {
           <div className="flex">
             <div className="flex-shrink-0 flex items-center">
               <Link href="/" className="text-xl font-bold">
-                Healthcare Clock-In
+                Lief Healthcare Clock-In
               </Link>
             </div>
             {user && (

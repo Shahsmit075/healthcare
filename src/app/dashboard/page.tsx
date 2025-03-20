@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useUser } from '@auth0/nextjs-auth0/client';
-import { Card, Row, Col, Table, Statistic, Spin, Tag, Input } from 'antd';
+import { Card, Row, Col, Table, Statistic, Spin, Tag, Input, Space } from 'antd';
 import { SearchOutlined, UserOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import WeeklyHoursChart from '@/components/WeeklyHoursChart';
@@ -47,7 +47,7 @@ export default function Dashboard() {
         </Link>
       ),
       sorter: (a, b) => a.name.localeCompare(b.name),
-      filteredValue: [searchText],
+      filteredValue: searchText ? [searchText] : null,
       onFilter: (value, record) => 
         record.name.toLowerCase().includes(value.toString().toLowerCase()),
     },

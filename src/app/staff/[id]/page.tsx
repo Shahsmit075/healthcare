@@ -1,152 +1,122 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Card, Descriptions, Table, Statistic, Row, Col, DatePicker } from 'antd';
-import { ClockCircleOutlined, CheckCircleOutlined } from '@ant-design/icons';
-import { ColumnsType } from 'antd/es/table';
-import dayjs, { Dayjs } from 'dayjs';
+import { use } from 'react';
+import { Card, Table, DatePicker, Space, Typography, Statistic, Row, Col } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
+import { ClockInRecord } from '@/types/clock-in';
+import { StaffMember } from '@/types/staff';
+import { useUser } from '@auth0/nextjs-auth0/client';
+import dayjs from 'dayjs';
 
-interface ClockInRecord {
-  id: string;
-  clockInTime: string;
-  clockOutTime: string | null;
-  notes?: string;
+const { RangePicker } = DatePicker;
+const { Title } = Typography;
+
+interface StaffDetailPageProps {
+  params: Promise<{ id: string }>;
 }
 
-interface StaffMember {
-  id: string;
-  name: string;
-  email: string;
-  role: string;
-  totalHours: number;
-  averageHoursPerDay: number;
-  clockInHistory: ClockInRecord[];
-}
-
-// @ts-expect-error - Suppressing Next.js page props type error for deployment
-export default function StaffDetailPage({ params }: { params: { id: string } }) {
-  const [staffMember, setStaffMember] = useState<StaffMember | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [dateRange, setDateRange] = useState<[Dayjs, Dayjs]>([
+export default function StaffDetailPage({ params }: StaffDetailPageProps) {
+  const resolvedParams = use(params);
+  const { user } = useUser();
+  const [staffDetails, setStaffDetails] = useState<StaffMember | null>(null);
+  const [clockInRecords, setClockInRecords] = useState<ClockInRecord[]>([]);
+  const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs]>([
     dayjs().subtract(30, 'days'),
     dayjs()
   ]);
-
-  const { RangePicker } = DatePicker;
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchStaffDetails = async () => {
-      if (!params.id) return;
       try {
-        const response = await fetch(`/api/staff/${params.id}?start=${dateRange[0].format('YYYY-MM-DD')}&end=${dateRange[1].format('YYYY-MM-DD')}`);
+        setLoading(true);
+        setError(null);
+        
+        // Fetch staff details
+        const response = await fetch(`/api/staff/${resolvedParams.id}`);
         if (!response.ok) throw new Error('Failed to fetch staff details');
         const data = await response.json();
-        setStaffMember(data);
+        setStaffDetails(data);
+
+        // Fetch clock-in records with date range
+        const recordsResponse = await fetch(
+          `/api/clock-in/staff/${resolvedParams.id}?startDate=${dateRange[0].toISOString()}&endDate=${dateRange[1].toISOString()}`
+        );
+        if (!recordsResponse.ok) throw new Error('Failed to fetch clock-in records');
+        const recordsData = await recordsResponse.json();
+        setClockInRecords(recordsData);
       } catch (error) {
         console.error('Error fetching staff details:', error);
+        setError(error instanceof Error ? error.message : 'An error occurred');
       } finally {
         setLoading(false);
       }
     };
 
     fetchStaffDetails();
-  }, [params.id, dateRange]);
+  }, [resolvedParams.id, dateRange]);
 
   const columns: ColumnsType<ClockInRecord> = [
     {
-      title: 'Date',
-      dataIndex: 'clockInTime',
-      key: 'date',
-      render: (text: string) => dayjs(text).format('MMMM D, YYYY'),
-      filteredValue: null,
-    },
-    {
       title: 'Clock In',
       dataIndex: 'clockInTime',
-      key: 'clockIn',
-      render: (text: string) => dayjs(text).format('HH:mm:ss'),
-      filteredValue: null,
+      key: 'clockInTime',
+      render: (text) => new Date(text).toLocaleString(),
     },
     {
       title: 'Clock Out',
       dataIndex: 'clockOutTime',
-      key: 'clockOut',
-      render: (text: string | null) => text ? dayjs(text).format('HH:mm:ss') : 'Active',
-      filteredValue: null,
-    },
-    {
-      title: 'Duration',
-      key: 'duration',
-      render: (_, record) => {
-        if (!record.clockOutTime) return 'In Progress';
-        const duration = dayjs(record.clockOutTime).diff(dayjs(record.clockInTime), 'hour', true);
-        return `${duration.toFixed(2)} hours`;
-      },
-      filteredValue: null,
+      key: 'clockOutTime',
+      render: (text) => text ? new Date(text).toLocaleString() : '-',
     },
     {
       title: 'Notes',
       dataIndex: 'notes',
       key: 'notes',
-      render: (text: string) => text || '-',
-      filteredValue: null,
     },
   ];
 
   if (loading) return <div>Loading...</div>;
-  if (!staffMember) return <div>Staff member not found</div>;
+  if (error) return <div>Error: {error}</div>;
+  if (!staffDetails) return <div>Staff member not found</div>;
 
   return (
     <div className="p-6">
       <Card className="mb-6">
-        <Descriptions title="Staff Details" bordered>
-          <Descriptions.Item label="Name">{staffMember.name}</Descriptions.Item>
-          <Descriptions.Item label="Email">{staffMember.email}</Descriptions.Item>
-          <Descriptions.Item label="Role">{staffMember.role}</Descriptions.Item>
-        </Descriptions>
+        <Title level={2}>Staff Details</Title>
+        <Row gutter={[16, 16]}>
+          <Col span={8}>
+            <Statistic title="Name" value={staffDetails.name} />
+          </Col>
+          <Col span={8}>
+            <Statistic title="Email" value={staffDetails.email} />
+          </Col>
+          <Col span={8}>
+            <Statistic title="Role" value={staffDetails.role} />
+          </Col>
+        </Row>
       </Card>
 
-      <Row gutter={16} className="mb-6">
-        <Col span={8}>
-          <Card>
-            <Statistic
-              title="Total Hours"
-              value={staffMember.totalHours}
-              precision={2}
-              prefix={<ClockCircleOutlined />}
-              suffix="hours"
-            />
-          </Card>
-        </Col>
-        <Col span={8}>
-          <Card>
-            <Statistic
-              title="Average Hours/Day"
-              value={staffMember.averageHoursPerDay}
-              precision={2}
-              prefix={<CheckCircleOutlined />}
-              suffix="hours"
-            />
-          </Card>
-        </Col>
-      </Row>
-
-      <Card title="Clock-in History" extra={
-        <RangePicker
-          value={dateRange}
-          onChange={(dates) => {
-            if (dates && dates[0] && dates[1]) {
-              setDateRange([dates[0], dates[1]]);
-            }
-          }}
-        />
-      }>
-        <Table
-          columns={columns}
-          dataSource={staffMember.clockInHistory}
-          rowKey="id"
-          pagination={{ pageSize: 10 }}
-        />
+      <Card className="mb-6">
+        <Space direction="vertical" size="large" style={{ width: '100%' }}>
+          <Title level={3}>Clock-in History</Title>
+          <RangePicker
+            value={dateRange}
+            onChange={(dates) => {
+              if (dates) {
+                setDateRange(dates as [dayjs.Dayjs, dayjs.Dayjs]);
+              }
+            }}
+          />
+          <Table
+            columns={columns}
+            dataSource={clockInRecords}
+            rowKey="id"
+            pagination={{ pageSize: 10 }}
+          />
+        </Space>
       </Card>
     </div>
   );
