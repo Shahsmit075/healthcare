@@ -1,4 +1,4 @@
-# Healthcare Clock-In System
+# 🏥Healthcare Clock-In System
 
 A Next.js application for managing healthcare worker clock-ins and attendance tracking.
 
@@ -163,30 +163,46 @@ Response:
 2. Copy the connection string to `DATABASE_URL` in `.env.local`.
 3. Run Prisma migrations.
 
-## Database Schema
-
-```prisma
-model User {
-  id          String    @id @default(cuid())
-  email       String    @unique
-  name        String
-  auth0Id     String    @unique
-  role        String    @default("CARE_WORKER")
-  clockIns    ClockIn[]
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-}
-
-model ClockIn {
-  id            String    @id @default(cuid())
-  userId        String
-  user          User      @relation(fields: [userId], references: [id])
-  clockInTime   DateTime  @default(now())
-  clockOutTime  DateTime?
-  notes         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-}
+## 🏰️ Architecture
+```mermaid
+erDiagram
+    User ||--o{ ClockIn : "logs"
+    User ||--o{ LocationPerimeter : "assigned to"
+    ClockIn ||--|{ LocationPerimeter : "occurs within"
+    
+    User {
+        string id PK
+        string email UK
+        string name
+        string auth0Id UK
+        enum role "CARE_WORKER | MANAGER"
+        datetime createdAt
+        datetime updatedAt
+    }
+    
+    ClockIn {
+        string id PK
+        string userId FK
+        datetime clockInTime
+        datetime clockOutTime
+        float clockInLat
+        float clockInLong
+        float clockOutLat
+        float clockOutLong
+        string notes
+        datetime createdAt
+        datetime updatedAt
+    }
+    
+    LocationPerimeter {
+        string id PK
+        string name
+        float latitude
+        float longitude
+        float radiusKm
+        datetime createdAt
+        datetime updatedAt
+    }
 ```
 
 ## Known Issues
@@ -209,3 +225,5 @@ model ClockIn {
 - Ensure **proper error handling**.
 - Maintain **existing code structure**.
 - Test **thoroughly before submitting a PR**.
+
+
