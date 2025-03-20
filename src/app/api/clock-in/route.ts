@@ -6,13 +6,14 @@ import { cookies } from 'next/headers';
 export async function POST(request: Request) {
   try {
     // Ensure cookies are properly awaited
-    await cookies();
+    const cookieStore = cookies();
+    await cookieStore.getAll(); // Properly await cookies
     
     // Get the session with proper cookie handling
     const session = await getSession();
     
     if (!session?.user) {
-      return new NextResponse('Unauthorized', { status: 401 });
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     // Get user from database
@@ -21,14 +22,14 @@ export async function POST(request: Request) {
     });
 
     if (!user) {
-      return new NextResponse('User not found', { status: 404 });
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
     const body = await request.json();
     const { action } = body;
 
     if (!action || !['CLOCK_IN', 'CLOCK_OUT'].includes(action)) {
-      return new NextResponse('Invalid action', { status: 400 });
+      return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
     }
 
     if (action === 'CLOCK_IN') {
@@ -41,7 +42,7 @@ export async function POST(request: Request) {
       });
 
       if (activeClockIn) {
-        return new NextResponse('Already clocked in', { status: 400 });
+        return NextResponse.json({ error: 'Already clocked in' }, { status: 400 });
       }
 
       // Create new clock-in record
@@ -63,7 +64,7 @@ export async function POST(request: Request) {
       });
 
       if (!activeClockIn) {
-        return new NextResponse('Not clocked in', { status: 400 });
+        return NextResponse.json({ error: 'Not clocked in' }, { status: 400 });
       }
 
       // Update clock-out time
@@ -78,6 +79,6 @@ export async function POST(request: Request) {
     }
   } catch (error) {
     console.error('Error processing clock-in/out:', error);
-    return new NextResponse('Internal Server Error', { status: 500 });
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 } 
