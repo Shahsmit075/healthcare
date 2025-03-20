@@ -3,10 +3,10 @@ import { v4 as uuidv4 } from 'uuid';
 
 const prisma = new PrismaClient();
 
-// Helper function to generate random time between two dates
-function randomDate(start: Date, end: Date) {
-  return new Date(start.getTime() + Math.random() * (end.getTime() - start.getTime()));
-}
+// // Helper function to generate random time between two dates
+// function randomDate(start: Date, end: Date) {
+//   return new Date(start.getTime() + Math.random() * (end.getTime() - start.getTime()));
+// }
 
 // Helper function to create a clock-in/out pair
 function generateClockInOut(userId: string, baseDate: Date, isLongShift = false) {
@@ -96,7 +96,7 @@ async function seedDemoData() {
 
     // Generate clock-in records for the past 7 days
     for (const user of users) {
-      let currentDate = new Date(sevenDaysAgo);
+      const currentDate = new Date(sevenDaysAgo);
 
       while (currentDate <= today) {
         // 80% chance of working on any given day

@@ -1,14 +1,11 @@
 'use client';
 
 import { useUser } from '@auth0/nextjs-auth0/client';
-import { Card, Typography, Space, Button, Row, Col, Statistic, Divider } from 'antd';
+import { Card, Typography, Space, Button, Row, Col, Statistic } from 'antd';
 import { 
   ClockCircleOutlined, 
-  UserOutlined, 
-  CalendarOutlined, 
   BarChartOutlined,
-  EnvironmentOutlined,
-  SafetyOutlined
+  EnvironmentOutlined
 } from '@ant-design/icons';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -236,7 +233,7 @@ export default function Home() {
           <Row gutter={[32, 32]} align="middle" justify="space-between">
             <Col xs={24} md={16}>
               <Title level={3} className="text-white mb-4">
-                Ready to streamline your healthcare facility's attendance tracking?
+                Ready to streamline your healthcare facility&apos;s attendance tracking?
               </Title>
               <Text className="text-blue-100 text-lg">
                 Get started today and transform how you manage your healthcare staff.
