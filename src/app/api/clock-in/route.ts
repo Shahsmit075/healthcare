@@ -38,9 +38,13 @@ export async function POST(request: Request) {
 
     if (activeClockIn) {
       // Clock out
+      const now = new Date().toISOString();
       const { data: updatedClockIn, error: updateError } = await supabase
         .from('ClockIn')
-        .update({ clockOutTime: new Date().toISOString() })
+        .update({ 
+          clockOutTime: now,
+          updatedAt: now
+        })
         .eq('id', activeClockIn.id)
         .select()
         .single();
@@ -56,12 +60,15 @@ export async function POST(request: Request) {
       });
     } else {
       // Clock in
+      const now = new Date().toISOString();
       const { data: newClockIn, error: insertError } = await supabase
         .from('ClockIn')
         .insert({
           userId: user.id,
-          clockInTime: new Date().toISOString(),
-          notes: null
+          clockInTime: now,
+          notes: null,
+          updatedAt: now,
+          createdAt: now
         })
         .select()
         .single();
