@@ -1,82 +1,69 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@auth0/nextjs-auth0';
-import { prisma } from '@/lib/prisma';
+import { supabase } from '@/lib/supabase';
 
-export async function GET(
-  request: Request,
-  context: { params: Promise<{ id: string }> }
-) {
+export async function GET(request: Request, { params }: { params: { id: string } }) {
   try {
     const session = await getSession();
-    if (!session?.user) {
-      return new NextResponse(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-      });
+    console.log('Session:', session?.user?.sub); // Debug log
+
+    if (!session?.user?.sub) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    // Get URL parameters for date range
-    const { searchParams } = new URL(request.url);
-    const startDate = searchParams.get('start');
-    const endDate = searchParams.get('end');
+    // Get requesting user
+    const { data: requestingUser, error: requestingUserError } = await supabase
+      .from('User')
+      .select('id')
+      .eq('auth0Id', session.user.sub)
+      .single();
 
-    // Await the params
-    const { id } = await context.params;
+    console.log('Requesting user:', requestingUser, 'Error:', requestingUserError); // Debug log
 
-    // Fetch user details
-    const user = await prisma.user.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-      },
-    });
-
-    if (!user) {
-      return new NextResponse(JSON.stringify({ error: 'User not found' }), {
-        status: 404,
-      });
+    if (requestingUserError) {
+      console.error('Error finding requesting user:', requestingUserError);
+      return NextResponse.json({ error: 'Database error: ' + requestingUserError.message }, { status: 500 });
     }
 
-    // Fetch clock-in history within date range
-    const clockIns = await prisma.clockIn.findMany({
-      where: {
-        userId: id,
-        clockInTime: {
-          gte: startDate ? new Date(startDate) : undefined,
-          lte: endDate ? new Date(endDate) : undefined,
-        },
-      },
-      orderBy: {
-        clockInTime: 'desc',
-      },
-    });
+    if (!requestingUser) {
+      console.error('No user found with auth0Id:', session.user.sub);
+      return NextResponse.json({ error: 'User not found in database' }, { status: 404 });
+    }
 
-    // Calculate statistics
-    let totalHours = 0;
-    let completedShifts = 0;
+    // Get staff member details
+    const { data: staff, error: staffError } = await supabase
+      .from('User')
+      .select(`
+        id,
+        name,
+        email,
+        role,
+        ClockIn (
+          id,
+          clockInTime,
+          clockOutTime,
+          notes
+        )
+      `)
+      .eq('id', params.id)
+      .single();
 
-    clockIns.forEach((record) => {
-      if (record.clockOutTime) {
-        const duration = (new Date(record.clockOutTime).getTime() - new Date(record.clockInTime).getTime()) / (1000 * 60 * 60);
-        totalHours += duration;
-        completedShifts++;
-      }
-    });
+    console.log('Staff details:', staff, 'Error:', staffError); // Debug log
 
-    const averageHoursPerDay = completedShifts > 0 ? totalHours / completedShifts : 0;
+    if (staffError) {
+      console.error('Error finding staff member:', staffError);
+      return NextResponse.json({ error: 'Database error: ' + staffError.message }, { status: 500 });
+    }
 
-    return new NextResponse(JSON.stringify({
-      ...user,
-      totalHours,
-      averageHoursPerDay,
-      clockInHistory: clockIns,
-    }));
+    if (!staff) {
+      return NextResponse.json({ error: 'Staff member not found' }, { status: 404 });
+    }
+
+    return NextResponse.json(staff);
   } catch (error) {
-    console.error('Error in staff details API:', error);
-    return new NextResponse(JSON.stringify({ error: 'Internal Server Error' }), {
-      status: 500,
-    });
+    console.error('Error fetching staff details:', error);
+    return NextResponse.json({ 
+      error: 'Internal server error: ' + (error instanceof Error ? error.message : 'Unknown error') 
+    }, { status: 500 });
   }
 } 

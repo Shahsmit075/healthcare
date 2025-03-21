@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useUser } from '@auth0/nextjs-auth0/client';
-import { Card, Row, Col, Table, Statistic, Spin, Tag, Input, Space } from 'antd';
+import { Card, Row, Col, Table, Statistic, Spin, Tag, Input, Space, message } from 'antd';
 import { SearchOutlined, UserOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import WeeklyHoursChart from '@/components/WeeklyHoursChart';
@@ -35,6 +35,7 @@ export default function Dashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [searchText, setSearchText] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
   const columns: ColumnsType<StaffRecord> = [
     {
@@ -103,24 +104,34 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchStats = async () => {
       try {
+        setIsLoading(true);
+        setError(null);
+        
         const response = await fetch('/api/dashboard/stats');
-        if (!response.ok) throw new Error('Failed to fetch stats');
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => null);
+          throw new Error(errorData?.error || `HTTP error! status: ${response.status}`);
+        }
+        
         const data = await response.json();
+        console.log('Dashboard stats:', data); // Debug log
         setStats(data);
-      } catch (error) {
-        console.error('Failed to fetch dashboard stats:', error);
+      } catch (err: any) {
+        console.error('Error fetching dashboard stats:', err);
+        setError(err.message);
+        message.error('Failed to load dashboard data: ' + err.message);
       } finally {
         setIsLoading(false);
       }
     };
 
-    if (user) {
+    if (user && !userLoading) {
       fetchStats();
-      // Refresh data every minute
-      const interval = setInterval(fetchStats, 60000);
+      // Refresh every 30 seconds
+      const interval = setInterval(fetchStats, 30000);
       return () => clearInterval(interval);
     }
-  }, [user]);
+  }, [user, userLoading]);
 
   if (userLoading || isLoading) {
     return (

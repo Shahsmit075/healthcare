@@ -1,84 +1,80 @@
-import { getSession } from '@auth0/nextjs-auth0';
-import { prisma } from '@/lib/prisma';
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
+import { getSession } from '@auth0/nextjs-auth0';
+import { supabase } from '@/lib/supabase';
 
-export async function POST(request: Request) {
+export async function POST() {
   try {
-    // Ensure cookies are properly awaited
-    const cookieStore = cookies();
-    await cookieStore.getAll(); // Properly await cookies
-    
-    // Get the session with proper cookie handling
     const session = await getSession();
-    
-    if (!session?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!session?.user?.sub) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    // Get user from database
-    const user = await prisma.user.findUnique({
-      where: { auth0Id: session.user.sub }
-    });
+    // Get user
+    const { data: user, error: userError } = await supabase
+      .from('User')
+      .select('id')
+      .eq('auth0Id', session.user.sub)
+      .single();
 
-    if (!user) {
+    if (userError || !user) {
+      console.error('Error finding user:', userError);
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    const body = await request.json();
-    const { action } = body;
+    // Check if user has an active clock-in
+    const { data: activeClockIn, error: activeClockInError } = await supabase
+      .from('ClockIn')
+      .select('*')
+      .eq('userId', user.id)
+      .is('clockOutTime', null)
+      .single();
 
-    if (!action || !['CLOCK_IN', 'CLOCK_OUT'].includes(action)) {
-      return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
+    if (activeClockInError && activeClockInError.code !== 'PGRST116') { // PGRST116 is "not found" error
+      console.error('Error checking active clock-in:', activeClockInError);
+      return NextResponse.json({ error: 'Database error' }, { status: 500 });
     }
 
-    if (action === 'CLOCK_IN') {
-      // Check if already clocked in
-      const activeClockIn = await prisma.clockIn.findFirst({
-        where: {
-          userId: user.id,
-          clockOutTime: null
-        }
-      });
+    if (activeClockIn) {
+      // Clock out
+      const { data: updatedClockIn, error: updateError } = await supabase
+        .from('ClockIn')
+        .update({ clockOutTime: new Date().toISOString() })
+        .eq('id', activeClockIn.id)
+        .select()
+        .single();
 
-      if (activeClockIn) {
-        return NextResponse.json({ error: 'Already clocked in' }, { status: 400 });
+      if (updateError) {
+        console.error('Error updating clock-in:', updateError);
+        return NextResponse.json({ error: 'Failed to clock out' }, { status: 500 });
       }
 
-      // Create new clock-in record
-      const clockIn = await prisma.clockIn.create({
-        data: {
-          userId: user.id,
-          clockInTime: new Date()
-        }
+      return NextResponse.json({
+        message: 'Successfully clocked out',
+        clockIn: updatedClockIn
       });
-
-      return NextResponse.json(clockIn);
     } else {
-      // Find active clock-in record
-      const activeClockIn = await prisma.clockIn.findFirst({
-        where: {
+      // Clock in
+      const { data: newClockIn, error: insertError } = await supabase
+        .from('ClockIn')
+        .insert([{
           userId: user.id,
-          clockOutTime: null
-        }
-      });
+          clockInTime: new Date().toISOString(),
+        }])
+        .select()
+        .single();
 
-      if (!activeClockIn) {
-        return NextResponse.json({ error: 'Not clocked in' }, { status: 400 });
+      if (insertError) {
+        console.error('Error creating clock-in:', insertError);
+        return NextResponse.json({ error: 'Failed to clock in' }, { status: 500 });
       }
 
-      // Update clock-out time
-      const updatedClockIn = await prisma.clockIn.update({
-        where: { id: activeClockIn.id },
-        data: {
-          clockOutTime: new Date()
-        }
+      return NextResponse.json({
+        message: 'Successfully clocked in',
+        clockIn: newClockIn
       });
-
-      return NextResponse.json(updatedClockIn);
     }
   } catch (error) {
-    console.error('Error processing clock-in/out:', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    console.error('Clock in/out error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 } 

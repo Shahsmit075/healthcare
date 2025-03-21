@@ -1,42 +1,49 @@
-import { getSession } from '@auth0/nextjs-auth0';
-import { prisma } from '@/lib/prisma';
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
+import { getSession } from '@auth0/nextjs-auth0';
+import { supabase } from '@/lib/supabase';
 
 export async function GET() {
   try {
-    // Ensure cookies are properly awaited
-    const cookieStore = cookies();
-    
-    // Get the session with proper cookie handling
     const session = await getSession();
-    
-    if (!session?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!session?.user?.sub) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    // Get user from database
-    const user = await prisma.user.findUnique({
-      where: { auth0Id: session.user.sub }
-    });
+    // Get user
+    const { data: user, error: userError } = await supabase
+      .from('User')
+      .select('id')
+      .eq('auth0Id', session.user.sub)
+      .single();
 
-    if (!user) {
+    if (userError || !user) {
+      console.error('Error finding user:', userError);
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
     // Get clock-in history
-    const clockIns = await prisma.clockIn.findMany({
-      where: {
-        userId: user.id
-      },
-      orderBy: {
-        clockInTime: 'desc'
-      }
-    });
+    const { data: clockIns, error: clockInsError } = await supabase
+      .from('ClockIn')
+      .select(`
+        id,
+        clockInTime,
+        clockOutTime,
+        User (
+          id,
+          name
+        )
+      `)
+      .eq('userId', user.id)
+      .order('clockInTime', { ascending: false });
+
+    if (clockInsError) {
+      console.error('Error fetching clock-in history:', clockInsError);
+      return NextResponse.json({ error: 'Failed to fetch history' }, { status: 500 });
+    }
 
     return NextResponse.json(clockIns);
   } catch (error) {
     console.error('Error fetching clock-in history:', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 } 

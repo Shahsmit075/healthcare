@@ -1,55 +1,58 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@auth0/nextjs-auth0';
-import { prisma } from '@/lib/prisma';
-import { cookies } from 'next/headers';
+import { supabase } from '@/lib/supabase';
 
 export async function GET(
   request: Request,
   { params }: { params: { id: string } }
 ) {
   try {
-    // Get cookie store and await it
-    const cookieStore = cookies();
-    await cookieStore.getAll();
-
-    // Get the session with proper cookie handling
     const session = await getSession();
+    console.log('Session:', session?.user?.sub); // Debug log
 
-    if (!session?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!session?.user?.sub) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    // Get query parameters
+    // Get URL parameters for date range
     const { searchParams } = new URL(request.url);
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
 
-    // Build the where clause for date filtering
-    const whereClause: any = {
-      userId: params.id
-    };
+    console.log('Date range:', { startDate, endDate }); // Debug log
 
-    if (startDate && endDate) {
-      whereClause.clockInTime = {
-        gte: new Date(startDate),
-        lte: new Date(endDate)
-      };
+    // Build the query
+    let query = supabase
+      .from('ClockIn')
+      .select('*')
+      .eq('userId', params.id);
+
+    // Add date range filters if provided
+    if (startDate) {
+      query = query.gte('clockInTime', startDate);
+    }
+    if (endDate) {
+      query = query.lte('clockInTime', endDate);
     }
 
-    // Fetch clock-in records
-    const records = await prisma.clockIn.findMany({
-      where: whereClause,
-      orderBy: {
-        clockInTime: 'desc'
-      }
-    });
+    // Order by clock-in time descending
+    query = query.order('clockInTime', { ascending: false });
 
-    return NextResponse.json(records);
+    // Execute the query
+    const { data, error } = await query;
+
+    console.log('Clock-in records:', data, 'Error:', error); // Debug log
+
+    if (error) {
+      console.error('Error fetching clock-in records:', error);
+      return NextResponse.json({ error: 'Database error: ' + error.message }, { status: 500 });
+    }
+
+    return NextResponse.json(data || []);
   } catch (error) {
-    console.error('Error fetching staff clock-in records:', error);
-    return NextResponse.json(
-      { error: 'Internal Server Error' },
-      { status: 500 }
-    );
+    console.error('Error fetching clock-in records:', error);
+    return NextResponse.json({ 
+      error: 'Internal server error: ' + (error instanceof Error ? error.message : 'Unknown error') 
+    }, { status: 500 });
   }
 } 

@@ -1,28 +1,13 @@
 import { getSession } from '@auth0/nextjs-auth0';
-import { prisma } from '@/lib/prisma';
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
+import { supabase } from '@/lib/supabase';
 
 export async function GET() {
   try {
-    // Get cookie store and await it
-    const cookieStore = cookies();
-    await cookieStore.getAll(); // Ensure all cookie operations are complete
-    
-    // Get the session with proper cookie handling
     const session = await getSession();
     
     if (!session?.user) {
-      return new NextResponse('Unauthorized', { status: 401 });
-    }
-
-    // Get user from database
-    const user = await prisma.user.findUnique({
-      where: { auth0Id: session.user.sub }
-    });
-
-    if (!user) {
-      return new NextResponse('User not found', { status: 404 });
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     // Get today's start timestamp
@@ -34,35 +19,39 @@ export async function GET() {
     weekStart.setDate(weekStart.getDate() - 6); // Get last 7 days including today
 
     // Get all users with their clock-in records
-    const users = await prisma.user.findMany({
-      include: {
-        clockIns: {
-          where: {
-            clockInTime: {
-              gte: weekStart,
-            },
-          },
-          orderBy: {
-            clockInTime: 'desc',
-          },
-        },
-      },
-    });
+    const { data: users, error: usersError } = await supabase
+      .from('User')
+      .select(`
+        id,
+        name,
+        auth0Id,
+        ClockIn (
+          id,
+          clockInTime,
+          clockOutTime
+        )
+      `);
+
+    if (usersError) {
+      console.error('Error fetching users:', usersError);
+      return NextResponse.json({ error: 'Failed to fetch users' }, { status: 500 });
+    }
 
     // Calculate staff records
     const staffRecords = users.map(user => {
-      const latestClockIn = user.clockIns[0];
+      const clockIns = user.ClockIn || [];
+      const latestClockIn = clockIns[0];
       const isActive = latestClockIn && !latestClockIn.clockOutTime;
       
       // Calculate total hours for today
-      const hoursToday = user.clockIns.reduce((total, record) => {
-        if (!record.clockOutTime || record.clockInTime < today) return total;
+      const hoursToday = clockIns.reduce((total, record) => {
+        if (!record.clockOutTime || new Date(record.clockInTime) < today) return total;
         const duration = new Date(record.clockOutTime).getTime() - new Date(record.clockInTime).getTime();
         return total + duration / (1000 * 60 * 60);
       }, 0);
 
       // Calculate weekly hours
-      const weeklyHours = user.clockIns.reduce((total, record) => {
+      const weeklyHours = clockIns.reduce((total, record) => {
         if (!record.clockOutTime) return total;
         const duration = new Date(record.clockOutTime).getTime() - new Date(record.clockInTime).getTime();
         return total + duration / (1000 * 60 * 60);
@@ -73,10 +62,10 @@ export async function GET() {
         name: user.name,
         status: isActive ? 'Active' : 'Inactive',
         clockInTime: isActive ? latestClockIn.clockInTime : undefined,
-        hoursToday,
-        weeklyHours,
-        lastClockOut: user.clockIns.find(record => record.clockOutTime)?.clockOutTime,
-        totalShifts: user.clockIns.filter(record => record.clockOutTime).length,
+        hoursToday: parseFloat(hoursToday.toFixed(2)),
+        weeklyHours: parseFloat(weeklyHours.toFixed(2)),
+        lastClockOut: clockIns.find(record => record.clockOutTime)?.clockOutTime,
+        totalShifts: clockIns.filter(record => record.clockOutTime).length,
       };
     });
 
@@ -89,7 +78,8 @@ export async function GET() {
       nextDate.setDate(nextDate.getDate() + 1);
 
       const totalHours = users.reduce((total, user) => {
-        const dayHours = user.clockIns.reduce((dayTotal, record) => {
+        const clockIns = user.ClockIn || [];
+        const dayHours = clockIns.reduce((dayTotal, record) => {
           if (!record.clockOutTime) return dayTotal;
           const clockIn = new Date(record.clockInTime);
           const clockOut = new Date(record.clockOutTime);
@@ -111,7 +101,7 @@ export async function GET() {
 
     // Calculate summary statistics
     const activeStaffCount = staffRecords.filter(record => record.status === 'Active').length;
-    const totalHoursToday = staffRecords.reduce((total, record) => total + record.hoursToday, 0);
+    const totalHoursToday = parseFloat(staffRecords.reduce((total, record) => total + record.hoursToday, 0).toFixed(2));
 
     return NextResponse.json({
       activeStaffCount,
@@ -122,6 +112,9 @@ export async function GET() {
     });
   } catch (error) {
     console.error('Error fetching dashboard stats:', error);
-    return new NextResponse('Internal Server Error', { status: 500 });
+    return NextResponse.json(
+      { error: 'Error fetching dashboard stats' },
+      { status: 500 }
+    );
   }
 } 

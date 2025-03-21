@@ -4,13 +4,26 @@ import { useEffect, useState } from 'react';
 import { use } from 'react';
 import { Card, Table, DatePicker, Space, Typography, Statistic, Row, Col } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { ClockInRecord } from '@/types/clock-in';
-import { StaffMember } from '@/types/staff';
 import { useUser } from '@auth0/nextjs-auth0/client';
 import dayjs from 'dayjs';
 
 const { RangePicker } = DatePicker;
 const { Title } = Typography;
+
+interface ClockInRecord {
+  id: string;
+  clockInTime: string;
+  clockOutTime: string | null;
+  notes?: string;
+}
+
+interface StaffMember {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  ClockIn: ClockInRecord[];
+}
 
 interface StaffDetailPageProps {
   params: Promise<{ id: string }>;
@@ -34,29 +47,46 @@ export default function StaffDetailPage({ params }: StaffDetailPageProps) {
         setLoading(true);
         setError(null);
         
+        console.log('Fetching staff details for ID:', resolvedParams.id); // Debug log
+        
         // Fetch staff details
         const response = await fetch(`/api/staff/${resolvedParams.id}`);
-        if (!response.ok) throw new Error('Failed to fetch staff details');
-        const data = await response.json();
-        setStaffDetails(data);
+        const responseData = await response.json();
+        console.log('Staff API response:', response.status, responseData); // Debug log
+
+        if (!response.ok) {
+          throw new Error(responseData.error || 'Failed to fetch staff details');
+        }
+        
+        setStaffDetails(responseData);
 
         // Fetch clock-in records with date range
+        console.log('Fetching clock-in records for date range:', dateRange[0].toISOString(), 'to', dateRange[1].toISOString()); // Debug log
+        
         const recordsResponse = await fetch(
           `/api/clock-in/staff/${resolvedParams.id}?startDate=${dateRange[0].toISOString()}&endDate=${dateRange[1].toISOString()}`
         );
-        if (!recordsResponse.ok) throw new Error('Failed to fetch clock-in records');
         const recordsData = await recordsResponse.json();
+        console.log('Clock-in records API response:', recordsResponse.status, recordsData); // Debug log
+
+        if (!recordsResponse.ok) {
+          throw new Error(recordsData.error || 'Failed to fetch clock-in records');
+        }
+        
         setClockInRecords(recordsData);
       } catch (error) {
-        console.error('Error fetching staff details:', error);
+        console.error('Error in fetchStaffDetails:', error);
         setError(error instanceof Error ? error.message : 'An error occurred');
       } finally {
         setLoading(false);
       }
     };
 
-    fetchStaffDetails();
-  }, [resolvedParams.id, dateRange]);
+    if (user) {
+      console.log('Current user:', user); // Debug log
+      fetchStaffDetails();
+    }
+  }, [resolvedParams.id, dateRange, user]);
 
   const columns: ColumnsType<ClockInRecord> = [
     {
@@ -75,9 +105,11 @@ export default function StaffDetailPage({ params }: StaffDetailPageProps) {
       title: 'Notes',
       dataIndex: 'notes',
       key: 'notes',
+      render: (text) => text || '-',
     },
   ];
 
+  if (!user) return <div>Please log in to view staff details</div>;
   if (loading) return <div>Loading...</div>;
   if (error) return <div>Error: {error}</div>;
   if (!staffDetails) return <div>Staff member not found</div>;
