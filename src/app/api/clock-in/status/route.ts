@@ -1,58 +1,50 @@
-import { getSession } from '@auth0/nextjs-auth0';
-import { prisma } from '@/lib/prisma';
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
+import { getSession } from '@auth0/nextjs-auth0';
+import { supabase } from '@/lib/supabase';
 
 export async function GET() {
   try {
-    console.log('Status API: Starting request');
-    
-    // Ensure cookies are properly awaited
-    const cookieStore = cookies();
-    console.log('Status API: Got cookie store');
-    
-    // Get the session with proper cookie handling
     const session = await getSession();
-    console.log('Status API: Session:', session?.user?.sub);
-    
-    if (!session?.user) {
-      console.log('Status API: No session found');
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    console.log('Session:', session?.user?.sub); // Debug log
+
+    if (!session?.user?.sub) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    // Get user from database
-    console.log('Status API: Looking for user with auth0Id:', session.user.sub);
-    const user = await prisma.user.findUnique({
-      where: { auth0Id: session.user.sub }
-    });
-    console.log('Status API: Found user:', user?.id);
+    // Get user from Supabase
+    const { data: user, error: userError } = await supabase
+      .from('User')
+      .select('id')
+      .eq('auth0Id', session.user.sub)
+      .single();
 
-    if (!user) {
-      console.log('Status API: User not found in database');
+    if (userError || !user) {
+      console.error('Error finding user:', userError);
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    // Get active clock-in record
-    console.log('Status API: Looking for active clock-in for user:', user.id);
-    const activeClockIn = await prisma.clockIn.findFirst({
-      where: {
-        userId: user.id,
-        clockOutTime: null
-      }
-    });
-    console.log('Status API: Active clock-in found:', activeClockIn?.id);
+    // Get active clock-in
+    const { data: activeClockIn, error: clockInError } = await supabase
+      .from('ClockIn')
+      .select('*')
+      .eq('userId', user.id)
+      .is('clockOutTime', null)
+      .single();
+
+    if (clockInError && clockInError.code !== 'PGRST116') { // PGRST116 is "no rows returned"
+      console.error('Error checking clock-in status:', clockInError);
+      return NextResponse.json({ error: 'Database error' }, { status: 500 });
+    }
 
     return NextResponse.json({
       isClockedIn: !!activeClockIn,
-      activeClockIn: activeClockIn ? {
-        id: activeClockIn.id,
-        clockInTime: activeClockIn.clockInTime,
-        clockInLat: activeClockIn.clockInLat,
-        clockInLong: activeClockIn.clockInLong
-      } : null
+      clockInTime: activeClockIn?.clockInTime || null,
+      clockInId: activeClockIn?.id || null
     });
   } catch (error) {
     console.error('Status API Error:', error);
-    return NextResponse.json({ error: 'Internal Server Error', details: error.message }, { status: 500 });
+    return NextResponse.json({ 
+      error: 'Internal server error: ' + (error instanceof Error ? error.message : 'Unknown error') 
+    }, { status: 500 });
   }
 } 

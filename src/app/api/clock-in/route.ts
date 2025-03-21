@@ -2,14 +2,16 @@ import { NextResponse } from 'next/server';
 import { getSession } from '@auth0/nextjs-auth0';
 import { supabase } from '@/lib/supabase';
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
     const session = await getSession();
+    console.log('Session:', session?.user?.sub); // Debug log
+
     if (!session?.user?.sub) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    // Get user
+    // Get user from Supabase
     const { data: user, error: userError } = await supabase
       .from('User')
       .select('id')
@@ -21,7 +23,7 @@ export async function POST() {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    // Check if user has an active clock-in
+    // Check for active clock-in
     const { data: activeClockIn, error: activeClockInError } = await supabase
       .from('ClockIn')
       .select('*')
@@ -29,7 +31,7 @@ export async function POST() {
       .is('clockOutTime', null)
       .single();
 
-    if (activeClockInError && activeClockInError.code !== 'PGRST116') { // PGRST116 is "not found" error
+    if (activeClockInError && activeClockInError.code !== 'PGRST116') { // PGRST116 is "no rows returned"
       console.error('Error checking active clock-in:', activeClockInError);
       return NextResponse.json({ error: 'Database error' }, { status: 500 });
     }
@@ -44,7 +46,7 @@ export async function POST() {
         .single();
 
       if (updateError) {
-        console.error('Error updating clock-in:', updateError);
+        console.error('Error clocking out:', updateError);
         return NextResponse.json({ error: 'Failed to clock out' }, { status: 500 });
       }
 
@@ -56,15 +58,16 @@ export async function POST() {
       // Clock in
       const { data: newClockIn, error: insertError } = await supabase
         .from('ClockIn')
-        .insert([{
+        .insert({
           userId: user.id,
           clockInTime: new Date().toISOString(),
-        }])
+          notes: null
+        })
         .select()
         .single();
 
       if (insertError) {
-        console.error('Error creating clock-in:', insertError);
+        console.error('Error clocking in:', insertError);
         return NextResponse.json({ error: 'Failed to clock in' }, { status: 500 });
       }
 
@@ -74,7 +77,9 @@ export async function POST() {
       });
     }
   } catch (error) {
-    console.error('Clock in/out error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    console.error('Clock In/Out Error:', error);
+    return NextResponse.json({ 
+      error: 'Internal server error: ' + (error instanceof Error ? error.message : 'Unknown error') 
+    }, { status: 500 });
   }
 } 
